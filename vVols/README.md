@@ -1,5 +1,6 @@
 # Pure Storage Flash Array vVol Dev Copy scripts
 Used to create a copy of a vVol volume from a Source "PROD" VM to a Target "DEV" VM
+
 Then used to refresh those vVol volumes
 
 
@@ -20,7 +21,7 @@ Get-Module -ListAvailable -Name "PureStorage.FlashArray.VMware"
 
 ## Pre-Requisites
 ### Variables
-- Update the ``.ps1`` files with the your variable information
+Update the ``.ps1`` files with the your variable information
 ```pwsh
 $array = "ARRAY.DOMAIN.int"
 $facred = Import-CliXml ./facred.xml
