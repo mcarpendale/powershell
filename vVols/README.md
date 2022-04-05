@@ -37,7 +37,8 @@ $uatvm1 = "uat-vvol-vm01"
   ```
 ### facred.xml
 This is the connection credential. Write to file using ``"Get-Credential | Export-CliXml c:\PS\cred.xml"``
-Username and Password must work across the fleet or arrays
+- Username and Password must work across the fleet or arrays
 
 Alternately you could use something like
+
 ``$fa = New-PfaConnection -endpoint $array -credentials (get-credential) -IgnoreCertificateError``
