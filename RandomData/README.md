@@ -6,7 +6,9 @@ This pwsh file will create random file data in the location and folder of your c
 ### Variables
 Update the ``.ps1`` files with the your variable information
 ``$qty``      : the quantity of files you want to create
+
 ``$location`` : the lcoation where you will be creating the random data
+
 ``$folder``   : the folder used to house the random data
 
 ```pwsh
@@ -23,8 +25,11 @@ Adjust this section of the pwsh file
  $size = $MBrandomsize | Get-Random 
 ```
 ``$randomsize``
+
 ``$MBrandomsize``
+
 ``$2KB``
+
 ``$5MB``
 
 If you want to adjsut the ``MB`` of ``KB`` Sizing - edit these lines
