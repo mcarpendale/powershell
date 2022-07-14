@@ -65,20 +65,3 @@ Write-Host "Create New disk 2 from $prodvm to $uatvm2"
 Copy-PfaVvolVmdkToNewVvolVmdk -vmdk $disksProd[2] -TargetVm (get-vm $uatvm2)
 Write-Host "Create New disk 3 from $prodvm to $uatvm2"
 Copy-PfaVvolVmdkToNewVvolVmdk -vmdk $disksProd[3] -TargetVm (get-vm $uatvm2)
-
-
-
-
-
-$disksProd = get-vm prod-vvol-vm01 | get-harddisk 
-$disksDev = get-vm dev-vvol-vm01 | get-harddisk 
-$mikevm = 'mc-vvol-test'
-$disksmike = get-vm mc-vvol-test |Get-HardDisk
-
-Copy-PfaVvolVmdkToExistingVvolVmdk -sourceVmdk $disksProd[1] -targetVmdk $disksDev[1]
-Copy-PfaVvolVmdkToExistingVvolVmdk -sourceVmdk $disksProd[2] -targetVmdk $disksDev[2]
-
-
-
-
-Install-Module -Name PureStoragePowerShellSDK
