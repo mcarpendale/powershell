@@ -1,4 +1,4 @@
-#DIY SRM Process - Failover
+#DIY SRM Process - Failback
 
 $vcs = @(
 "vc01.DOMAIN.int"
@@ -31,7 +31,7 @@ $drhg       = "DR-Cluster"
 
 
 ##########################################
-#DIY SRM Process - Failover
+#DIY SRM Process - Failback
 #Log into each vCetner Server 
 Foreach ($vc in $vcs) {
     Write-Host "logging into $vc"
@@ -49,9 +49,7 @@ $FlashArrayPROD = Connect-Pfa2Array -EndPoint $faprod -Credential $facred -Ignor
 Write-Host "logging into Flash Array $fadr"
 $FlashArrayDR = Connect-Pfa2Array -EndPoint $fadr -Credential $facred -IgnoreCertificateError -ErrorAction Stop
 
-
-
-#Shutdown VMs -PROD
+#Shutdown VMs -DR
 try{
     foreach ($vmName in $vms) {
         $vm = Get-VM -Name $vmName -ErrorAction Stop
@@ -74,13 +72,12 @@ Catch{
    Write-Host "VM '$($vmName)' not found!"
 }
 
-#remove VMs from Inventory - PROD
+#remove VMs from Inventory - DR
 foreach ($vm in $vms) { 
-    Write-Host "removing $vm from $PRODcluster"
+    Write-Host "removing $vm from $drcluster"
     try { remove-vm $vm -Confirm:$false }
     catch { echo "Error removing $vm : $_" }
 }
-
 
 #unmount DS - PROD
 # foreach ($ds in $datastores) { 
@@ -92,13 +89,13 @@ foreach ($vm in $vms) {
 #     catch { echo "Error Detaching $ds : $_" }
 # }
 
-foreach ($ds in $datastores) {
+foreach ($ds in $datastores) { 
     $uArgs = @{
         volumelabel = $ds
         nopersist = $true
     }
-    Write-Host "unmounting $ds from $prodcluster"
-    Get-Cluster $prodcluster| Get-VMHost -Datastore $ds | %{
+    Write-Host "unmounting $ds from $drcluster"
+    Get-Cluster $drcluster| Get-VMHost -Datastore $ds | %{
         $esxcli = Get-EsxCli -VMHost $_ -V2
         $esxcli.storage.filesystem.unmount.Invoke($uArgs)
     }
@@ -106,45 +103,45 @@ foreach ($ds in $datastores) {
 
 foreach ($ds in $datastores) { 
     Write-Host "removing HostGroup from Flash Array Volume $ds"
-    $prodvolumename = "$prodpod::$ds"
-    Remove-Pfa2Connection -Array $FlashArrayPROD -HostGroupNames $prodhg -VolumeNames $prodvolumename
+    $drvolumename = "$drpod::$ds"
+    Remove-Pfa2Connection -Array $FlashArrayDR -HostGroupNames $drhg -VolumeNames $drvolumename
     
 }
 
 #### Really slow!
 
 
-Write-Host "detaching $ds from $prodcluster"
-Get-Cluster $prodcluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVmfs
+Write-Host "detaching $ds from $drcluster"
+Get-Cluster $drcluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVmfs
 
 
 
 
-#Demote PROD POD - w/ Quiesce (Quiesce a source pod to ensure that all local data is replicated to the target pod before this pod is demoted)
-Write-Host "Demote $prodpod POD with Quiesce"
-Update-Pfa2Pod -Array $FlashArrayPROD -Name $prodpod -RequestedPromotionState "demoted" -Quiesce $true
+#Demote DRPOD - w/ Quiesce (Quiesce a source pod to ensure that all local data is replicated to the target pod before this pod is demoted)
+Write-Host "Demote $drpod POD with Quiesce"
+Update-Pfa2Pod -Array $FlashArrayDR -Name $drpod -RequestedPromotionState "demoted" -Quiesce $true
 do {
-    Write-Host "Waiting for $prodpod POD to Quiesce and Demote"
+    Write-Host "Waiting for $drpod POD to Quiesce and Demote"
     Start-Sleep -Milliseconds 500
-    $prodpodstatus = Get-Pfa2Pod -Array $FlashArrayPROD -name $prodpod
-} while ($prodpodstatus | select-string -pattern "demoting")
+    $drpodstatus = Get-Pfa2Pod -Array $FlashArrayDR -name $drpod
+} while ($drpodstatus | select-string -pattern "demoting")
 
-# Promote the DR Site Pod
-Write-Host "Promote $drpod POD"
-Update-Pfa2Pod -Array $FlashArrayDR -Name $drpod -RequestedPromotionState "promoted"
+# Promote the PROD Site Pod
+Write-Host "Promote $prodpod POD"
+Update-Pfa2Pod -Array $FlashArrayPROD -Name $prodpod -RequestedPromotionState "promoted"
 do {
     Write-Host "Waiting for Pod Promotion"
     Start-Sleep -Milliseconds 500
-    $drpodstatus = Get-Pfa2Pod -Array $FlashArrayDR -name $drpod
-} while ($drpodstatus | select-string -pattern "promoting")
+    $prodpodstatus = Get-Pfa2Pod -Array $FlashArrayPROD -name $prodpod
+} while ($prodpodstatus | select-string -pattern "promoting")
 
 
 
-#Connect to DR HG - note LUN-ID
+#Connect to PROD HG - note LUN-ID
 foreach ($ds in $datastores) { 
     Write-Host "Add HostGroup from Flash Array Volume $ds"
-    $drvolumename = "$drpod::$ds"
-    New-Pfa2Connection -Array $FlashArrayDR -HostGroupNames $drhg -VolumeNames $drvolumename
+    $prodvolumename = "$prodpod::$ds"
+    New-Pfa2Connection -Array $FlashArrayPROD -HostGroupNames $prodhg -VolumeNames $prodvolumename
 }
 
 
@@ -153,23 +150,24 @@ foreach ($ds in $datastores) {
 
 
 #New Datastore - VMFS, DS NAMGet-Pfa2PodE, LUN-ID, Host, ##New SIG or ##existing, VMFS6
-Write-Host "Scanning HBAs and VMFS on $drcluster Cluster hosts"
-Get-Cluster $drcluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVmfs
+Write-Host "Scanning HBAs and VMFS on $prodcluster Cluster hosts"
+Get-Cluster $prodcluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVmfs 
 
 
 ###### From jase
 # Put all datastores attached to the host in an array variable
-$DRVMHost = Get-Cluster -Name $drcluster | Get-VMhost | Select-Object -First 1
-$PreFailOverDatastrores = $DRVMhost | Get-Datastore
+$PRODVMHost = Get-Cluster -Name $prodcluster | Get-VMhost | Select-Object -First 1
+$PreFailBackDatastores = $PRODVMhost | Get-Datastore
 
 
 
 
 #$VMHost = Get-Cluster $drcluster | Get-VMhost | Select-Object -First 1
 
-$EsxCli = Get-EsxCli -VMHost $DRVMhost -V2
+$EsxCli = Get-EsxCli -VMHost $PRODVMhost -V2
 
 $Snaps = $esxcli.storage.vmfs.snapshot.list.invoke()
+$snaps
 #$Snaps = $esxcli.storage.vmfs.snapshot.list($ds)
 
 if ($Snaps.Count -gt 0) {
@@ -183,8 +181,8 @@ if ($Snaps.Count -gt 0) {
 
 ###### From jase
 # Rescan the HBAs to ensure that the datastore is visible and may be used
-Get-VMHostStorage -RescanAllHba -RescanVmfs -VMHost $DRVMhost | Out-Null
-Get-Cluster $drcluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVmfs  | Out-Null
+Write-Host "Scanning HBAs and VMFS on $prodcluster Cluster hosts"
+Get-Cluster $prodcluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVmfs | Out-Null
 
 
 
@@ -192,23 +190,23 @@ Get-Cluster $drcluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVmf
 Start-Sleep -Seconds 5
 
 # Get a list of all of the datastores on the host (including the new snapped datastore)
-$PostFailOverDatastores = $DRVMhost | Get-Datastore
+$PostFailBackDatastores = $PRODVMhost | Get-Datastore
 
 
 # Compare the pre/post datastore array variables to gather the name of the newly added datastore
 # This datastore will have a name like snap-32a052-old-volume-name
-$FailOverDatastores = (Compare-Object -ReferenceObject $PreFailOverDatastrores -DifferenceObject $PostFailOverDatastores).InputObject
-Write-Host $FailOverDatastores
+$FailBackDatastores = (Compare-Object -ReferenceObject $PreFailBackDatastores -DifferenceObject $PostFailBackDatastores).InputObject
+Write-Host $FailBackDatastores
 
 
 
 #Rename the Datastore
-Get-Datastore -Name $FailOverDatastores | Set-Datastore -Name $datastores[0]
+Get-Datastore -Name $FailBackDatastores | Set-Datastore -Name $datastores[0]
 
 #17/08/22 - testing indicates not required
 #Register VM - browse datastore, folder, find vmx, import to folder, Cluster, 
-#$Datastore = Get-Datastore -Name $FailOverDatastores
-#$VMFolder  = Get-Folder -Type VM -Name $DRVMFolder
+#$Datastore = Get-Datastore -Name $FailBackDatastores
+#$VMFolder  = Get-Folder -Type VM -Name $PRODVMFolder
 
 
 
@@ -225,7 +223,7 @@ foreach($datastore in $datastores) {
 
     # Register all .VMX files with vCenter
     foreach($SearchResult in $SearchResults) {
-    New-VM -VMFilePath $SearchResult -VMHost $DRVMHost -Location $DRVMFolder -RunAsync -ErrorAction SilentlyContinue
+    New-VM -VMFilePath $SearchResult -VMHost $PRODVMHost -Location $PRODVMFolder -RunAsync -ErrorAction SilentlyContinue
    }
 }
 
@@ -252,6 +250,13 @@ foreach ($vm in $vms) {
         Get-VMQuestion -VM $vm | Set-VMQuestion –Option "button.uuid.movedTheVM" -Confirm:$false   
     }
 }
+
+
+
+
+
+
+
 
 
 
